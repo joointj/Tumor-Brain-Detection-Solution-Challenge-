@@ -1,0 +1,76 @@
+import os
+from flask import Flask, render_template, request, redirect, url_for
+from werkzeug.utils import secure_filename
+#from tensorflow.keras.models import load_model
+#from tensorflow.keras.preprocessing.image import load_img, img_to_array
+import numpy as np
+import tensorflow as tf
+from flask import Flask, send_from_directory
+
+app = Flask(__name__)
+
+# configure upload folder
+UPLOAD_FOLDER = 'uploads'
+app.config['UPLOAD_FOLDER'] = UPLOAD_FOLDER
+
+# configure allowed extensions
+ALLOWED_EXTENSIONS = {'jpg', 'jpeg', 'png'}
+# load pre-trained model
+model_path = os.path.abspath('Scripts\\model1.h5')
+model = tf.keras.models.load_model(model_path)
+
+# define function to check allowed file extensions
+def allowed_file(filename):
+    return '.' in filename and \
+           filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+# define function to predict tumor type
+def predict_tumor_type(image_path):
+    image = tf.keras.preprocessing.image.load_img(image_path, target_size=(256, 256))
+    image = image.convert('RGB')
+    image = tf.keras.preprocessing.image.img_to_array(image)
+    image /= 255
+    image = np.expand_dims(image, axis=0)
+    pred = model.predict(image)
+    categories = [ 'glioma', 'meningioma','notumor','pituitary']
+    output = categories[np.argmax(pred)]    
+    prediction = output
+    return prediction , prediction
+    
+
+@app.route('/')
+def index():
+    return render_template('abdo.html')
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    # check if file was uploaded
+    if 'file' not in request.files:
+        return redirect(url_for('abdo'))
+
+    file = request.files['file']
+
+    # check if file was selected
+    if file.filename == '':
+        return redirect(url_for('abdo'))
+
+    # check if file is allowed
+    if not allowed_file(file.filename):
+        return redirect(url_for('abdo'))
+
+    # save file to upload folder
+    filename = secure_filename(file.filename)
+    file_path = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+    file.save(file_path)
+
+    # predict tumor type
+    tumor_type, result_class = predict_tumor_type(file_path)
+
+    return render_template('abdo.html', filename=filename, result=tumor_type, result_class=result_class)
+
+@app.route('/uploads/<filename>')
+def uploaded_file(filename):
+    return send_from_directory(app.config['UPLOAD_FOLDER'], filename)
+
+if __name__ == '__main__':
+    app.run(debug=True)
